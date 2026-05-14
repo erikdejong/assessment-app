@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check-types": "tsc --noEmit",
+    "test": "jest --coverage --verbose --runInBand",
+    "test:watch": "npm run test -- --watchAll --verbose"
   },
   "dependencies": {
     "next": "16.2.1",

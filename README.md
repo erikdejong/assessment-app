@@ -14,6 +14,7 @@ assessment-app/
         └── frontend-deploy.yml 
 ├── backend/
 │   ├── models/
+│   ├── tests/
 ├── frontend/
 │   ├── src/
 ├── memory/
@@ -74,6 +75,11 @@ Use these commands to run the application locally
 - Run `cd backend`
 - Run `uv run uvicorn main:app --reload` to start the backend app in dev mode
 
+### Test the backend ###
+- Run `cd backend`
+- Run `uv run flake8`
+- Run `uv run python -m unittest discover -s tests -v`
+
 ### Run the frontend ###
 - run `cd frontend`
 - Run `npm run dev` to start the frontend app in dev mode
@@ -90,8 +96,13 @@ Run these commands to deploy the backend and frontend to Azure using Github work
 
 ### Create Azure App Service ###
 1. Run `source ./scripts/azure-backend-deployment.sh` to create the resources on Azure
-2. Got o GitHub Repository → Settings → Secrets and variables → Actions
+If using Publish Profile
+2. Go to GitHub Repository → Settings → Secrets and variables → Actions
 3. Add Azure secret AZURE_WEBAPP_PUBLISH_PROFILE with the xml from the sh command
+If using OIDC
+3. Run `source ./scripts/azure-oidc-login.sh` to create the resources on Azure
+4. Go to GitHub Repository → Settings → Secrets and variables → Actions
+5. Add AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID secrets  
 
 ### Run backend deployment ###
 - Commit code and have ./github/workflows/backend-deploy.yml running the backend deployment

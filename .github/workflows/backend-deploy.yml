@@ -9,7 +9,42 @@ on:
       - '.github/workflows/backend-deploy.yml'
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run flake8
+        run: |
+          cd backend
+          flake8 .
+
+      - name: Run mypy
+        run: |
+          cd backend
+          mypy .
+
+      - name: Run tests (unittest)
+        run: |
+          cd backend
+          python -m unittest discover -s tests -v
+
   build-and-deploy:
+    needs: test
     runs-on: ubuntu-latest
 
     permissions:
