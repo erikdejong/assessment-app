@@ -1,0 +1,13 @@
+boto3
+fastapi
+gunicorn
+ollama
+openai
+passlib[argon2]
+psycopg2-binary
+pypdf
+python-dotenv
+python-jose[cryptography] 
+python-multipart
+sqlalchemy 
+uvicorn
