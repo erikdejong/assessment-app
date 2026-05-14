@@ -1,6 +1,6 @@
 RESOURCE_GROUP=assessment-app-rg
 LOCATION=westeurope
-APP_NAME=assessment-app-2026
+APP_NAME=assessment-app-2026-backend
 PLAN_NAME=assessment-app-plan
 
 az group create \
