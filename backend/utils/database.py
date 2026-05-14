@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL") if os.getenv("DATABASE_URL") is not None else "sqlite:///./app.db"
-assert DATABASE_URL is not None, "DATABASE_URL is not set"
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL is None:
+    DATABASE_URL = "sqlite:///./app.db"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
