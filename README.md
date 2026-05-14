@@ -78,12 +78,19 @@ Use these commands to run the application locally
 ### Test the backend ###
 - Run `cd backend`
 - Run `uv run flake8`
+- Run `uv run mypy`
 - Run `uv run python -m unittest discover -s tests -v`
 
 ### Run the frontend ###
-- run `cd frontend`
+- Run `cd frontend`
 - Run `npm run dev` to start the frontend app in dev mode
 
+### Test the frontend ###
+- Run `cd frontend`
+- Run `npm run lint`
+- Run `npm run check-types`
+- Run `npm run test`
+ 
 # Deploy the application
 Run these commands to setup the deployment
 
