@@ -1,0 +1,10 @@
+.chat {
+  display: flex;
+  flex-direction: column;
+  width: 100%;  
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+}
