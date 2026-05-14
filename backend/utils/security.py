@@ -7,8 +7,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 from models.users import User as UserModel
-from database import get_db
+from utils.database import get_db
 
 # ------------------------------------------------------------------------------
 # Configuration (use env vars in real systems)
