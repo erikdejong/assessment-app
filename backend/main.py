@@ -1,14 +1,14 @@
 import os
-import uuid
 import traceback
+import uuid
 from datetime import datetime
+from typing import Any, Optional
+
 from dotenv import load_dotenv
-from typing import Any
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
 
 from agents.doc_analyzer_agent import DocAnalyzerAgent
 from utils.memory import ChatMemory
@@ -40,6 +40,7 @@ MEMORY_DIR = os.getenv("MEMORY_DIR", "../memory")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 
+
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
@@ -63,7 +64,7 @@ async def root() -> dict[str, Any]:
         "memory_enabled": True,
         "use_s3": USE_S3,
         "llm_provider": LLM_PROVIDER,
-        "llm_model": LLM_MODEL
+        "llm_model": LLM_MODEL,
     }
 
 
@@ -73,12 +74,12 @@ async def health_check() -> dict[str, Any]:
         "status": "healthy",
         "use_s3": USE_S3,
         "llm_provider": LLM_PROVIDER,
-        "llm_model": LLM_MODEL
+        "llm_model": LLM_MODEL,
     }
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest) -> ChatResponse:
     """
     Process a chat message and return a response.
 
@@ -90,36 +91,35 @@ async def chat(request: ChatRequest):
     """
 
     try:
-        # Generate session ID if not provided
         session_id = request.session_id or str(uuid.uuid4())
 
-        success_criteria = "The assistant should be able give a valid answer to the user's question."
+        success_criteria = (
+            "The assistant should be able give a valid answer to the user's question."
+        )
 
-        # Load conversation history
         conversation = chat_memory.load_conversation(session_id)
 
-        # Call agent for response
         await doc_analyzer_agent.initialize()
-        assistant_response = await doc_analyzer_agent.process_message(request.message, success_criteria, conversation, session_id)
+        assistant_response = await doc_analyzer_agent.process_message(
+            request.message, success_criteria, conversation, session_id
+        )
 
-        # Update conversation history
         conversation.append(
             {
-                "role": "user", 
-                "content": request.message, 
-                "timestamp": datetime.now().isoformat()
+                "role": "user",
+                "content": request.message,
+                "timestamp": datetime.now().isoformat(),
             }
         )
 
         conversation.append(
             {
                 "role": "assistant",
-                "content": assistant_response[1]['content'],
+                "content": assistant_response[1]["content"],
                 "timestamp": datetime.now().isoformat(),
             }
         )
 
-        # Save conversation
         chat_memory.save_conversation(session_id, conversation)
 
         return ChatResponse(response=assistant_response, session_id=session_id)
@@ -132,11 +132,11 @@ async def chat(request: ChatRequest):
 
 
 @app.get("/conversation/{session_id}")
-async def get_conversation(session_id: str):
+async def get_conversation(session_id: str) -> dict[str, Any]:
     """
     Retrieve conversation history
     """
-    
+
     try:
         conversation = chat_memory.load_conversation(session_id)
         return {"session_id": session_id, "messages": conversation}
