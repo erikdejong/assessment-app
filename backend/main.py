@@ -1,14 +1,8 @@
-import boto3
-import json
 import os
-import uuid
-
-from fastapi import FastAPI, HTTPException
+from typing import Any
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from dotenv import load_dotenv
-from typing import Optional, List, Dict
-from datetime import datetime
 
 load_dotenv()
 
@@ -36,7 +30,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 
 
 @app.get("/")
-async def root():
+async def root() -> dict[str, Any]:
     return {
         "message": "Assessment App API",
         "memory_enabled": True,
@@ -47,9 +41,9 @@ async def root():
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, Any]:
     return {
-        "status": "healthy", 
+        "status": "healthy",
         "use_s3": USE_S3,
         "bedrock_model": LLM_MODEL
     }
