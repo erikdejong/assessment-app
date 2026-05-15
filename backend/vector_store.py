@@ -51,14 +51,14 @@ def load_document(db_name: str, documents: List[str]) -> Chroma:
 if __name__ == "__main__":
     load_dotenv()
 
-    memory_dir = os.getenv("MEMORY_DIR", ".")
+    knowledge_dir = os.getenv("KNOWLEDGE_DIR", ".")
     vector_store_dir = os.getenv("VECTOR_STORE_DIR", ".")
 
     documents = [
-        os.path.join(memory_dir, "knowledge", "Annual Report 2025.pdf"),
-        os.path.join(memory_dir, "knowledge", "Annual Report 2024.pdf"),
-        os.path.join(memory_dir, "knowledge", "Annual Report 2023.pdf"),
-        os.path.join(memory_dir, "knowledge", "Annual Report 2022 (EN).pdf"),
+        os.path.join(knowledge_dir, "Annual Report 2025.pdf"),
+        os.path.join(knowledge_dir, "Annual Report 2024.pdf"),
+        os.path.join(knowledge_dir, "Annual Report 2023.pdf"),
+        os.path.join(knowledge_dir, "Annual Report 2022 (EN).pdf"),
     ]
 
     db_name = os.path.join(vector_store_dir, "vector_store.db")

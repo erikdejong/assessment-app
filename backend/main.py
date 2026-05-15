@@ -17,6 +17,7 @@ from database.database import get_db
 from database.security import get_user
 from models.users import User
 from utils.memory import ChatMemory
+from vector_store import load_document
 
 load_dotenv()
 
@@ -81,6 +82,32 @@ async def health_check() -> dict[str, Any]:
         "llm_provider": LLM_PROVIDER,
         "llm_model": LLM_MODEL,
     }
+
+
+@app.get("/knowledge")
+async def vector_store() -> dict[str, Any]:
+    try:
+        knowledge_dir = os.getenv("KNOWLEDGE_DIR", ".")
+        vector_store_dir = os.getenv("VECTOR_STORE_DIR", ".")
+
+        documents = [
+            os.path.join(knowledge_dir, "Annual Report 2025.pdf"),
+            os.path.join(knowledge_dir, "Annual Report 2024.pdf"),
+            os.path.join(knowledge_dir, "Annual Report 2023.pdf"),
+            os.path.join(knowledge_dir, "Annual Report 2022 (EN).pdf"),
+        ]
+
+        db_name = os.path.join(vector_store_dir, "vector_store.db")
+        vectorstore = load_document(db_name, documents)
+
+        return {
+            "status": "success",
+            "documents": documents,
+            "vectorstore": vectorstore._collection.count(),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat", response_model=ChatResponse)

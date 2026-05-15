@@ -24,8 +24,8 @@ assessment-app/
 │   ├── public/
 │   ├── out/
 │   ├── src/
+├── knowledge/
 ├── memory/
-│   ├── knowledge/
 │   ├── vector_store/
 │   ├── database/
 ├── scripts/
