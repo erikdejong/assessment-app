@@ -82,20 +82,20 @@ async def health_check() -> dict[str, Any]:
 async def chat(request: ChatRequest) -> ChatResponse:
     """
     Process a chat message and return a response.
-
-    Args:
-        request: The chat request containing the message and session ID
-
-    Returns:
-        A chat response containing the response and session ID
+    :param request: The chat request containing the message and session ID
+    :return: A chat response containing the response and session ID
     """
 
     try:
         session_id = request.session_id or str(uuid.uuid4())
 
-        success_criteria = (
-            "The assistant should be able give a valid answer to the user's question."
-        )
+        success_criteria = """
+The assistant should be able give a valid answer to the user's question.
+The answer should be based on the information from the documents.
+If the questions contains a year, the answer should be based on the information
+from the documents from that year.
+The answer should be in the language of the user's question.
+"""
 
         conversation = chat_memory.load_conversation(session_id)
 

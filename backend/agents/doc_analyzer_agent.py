@@ -1,49 +1,52 @@
 import os
 import uuid
-from typing import Annotated, Any, Dict, List, Optional, Tuple, TypedDict, cast
-
+import logging
+from typing import Annotated, Any, Dict, List, Optional, Sequence, TypedDict, cast
 from dotenv import load_dotenv
+from chromadb import PersistentClient
+from chromadb.api import ClientAPI
 from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import Runnable
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from playwright.async_api import async_playwright
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from agents.doc_analyzer_prompts import (
+    EvaluatorOutput,
+    get_websearch_evaluator_background,
+    get_websearch_evaluator_prompt,
+    get_websearch_searcher_prompt,
+)
 
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class State(TypedDict):
     messages: Annotated[List[Any], add_messages]
+    chunks: List[Any]
     success_criteria: str
     feedback_on_work: Optional[str]
     success_criteria_met: bool
     user_input_needed: bool
 
 
-class EvaluatorOutput(BaseModel):
-    feedback: str = Field(description="Feedback on the assistant's response")
-    success_criteria_met: bool = Field(
-        description="Whether the success criteria have been met"
-    )
-    user_input_needed: bool = Field(
-        description=(
-            "True if more input is needed from the user, or clarifications, "
-            "or the assistant is stuck"
-        )
-    )
+class Result(BaseModel):
+    page_content: str
+    metadata: Dict[str, Any]
 
 
 class DocAnalyzerAgent:
-    """
-    Initialize the agent and its dependencies.
-    """
-
     def __init__(
         self,
         provider: Optional[str] = None,
@@ -53,11 +56,24 @@ class DocAnalyzerAgent:
 
         self._model = model if model else os.getenv("LLM_MODEL", "llama3.2")
         self._provider = provider if provider else os.getenv("LLM_PROVIDER", "ollama")
+        self._collection_name = os.getenv("VECTOR_COLLECTION", "documents")
+        vector_store_dir = os.getenv("VECTOR_STORE_DIR", ".")
+        self._db_name = os.path.join(vector_store_dir, "vector_store.db")
+
+        embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+        self._embeddings = OpenAIEmbeddings(model=embedding_model)
+
+        self._worker_llm_with_tools: Optional[Runnable[Any, Any]] = None
+        self._evaluator_llm_with_output: Optional[Runnable[Any, Any]] = None
+        self._graph: Optional[Any] = None
+        self._vectorstore: Optional[ClientAPI] = None
 
     async def initialize(self) -> None:
         """
         Initialize the agent and its dependencies.
         """
+
+        self._vectorstore = PersistentClient(path=self._db_name)
 
         worker_llm: BaseChatModel
         evaluator_llm: BaseChatModel
@@ -96,15 +112,11 @@ class DocAnalyzerAgent:
     ) -> List[Dict[str, Any]]:
         """
         Process a message and return the response from the agent.
-
-        Args:
-            message: The message to process
-            success_criteria: The success criteria for the message
-            history: The history of the conversation
-            thread: The thread ID
-
-        Returns:
-            The response from the agent with the user, reply and feedback.
+        :param message: The message to process
+        :param success_criteria: The success criteria for the message
+        :param history: The history of the conversation
+        :param thread: The thread ID
+        :return: The response from the agent with the user, reply and feedback.
         """
 
         config = {"configurable": {"thread_id": thread}}
@@ -113,12 +125,14 @@ class DocAnalyzerAgent:
 
         state: State = {
             "messages": history + [HumanMessage(content=message)],
+            "chunks": [],
             "success_criteria": success_criteria,
             "feedback_on_work": None,
             "success_criteria_met": False,
             "user_input_needed": False,
         }
 
+        assert self._graph is not None, "Agent not initialized; call initialize() first"
         result = await self._graph.ainvoke(state, config=config)
 
         user = {"role": "user", "content": message}
@@ -127,32 +141,27 @@ class DocAnalyzerAgent:
 
         return [user, reply, feedback]
 
-    async def reset(self) -> Tuple[str, str, Optional[str], str]:
-        return "", "", None, self._make_thread_id()
-
-    @staticmethod
-    def _make_thread_id() -> str:
-        return str(uuid.uuid4())
-
     def _build_graph(self) -> Any:
         graph_builder = StateGraph(State)
 
-        graph_builder.add_node("worker", self._worker)
+        graph_builder.add_edge(START, "document_worker")
+        graph_builder.add_node("document_worker", self._document_worker)
+        graph_builder.add_node("answer_worker", self._answer_worker)
         graph_builder.add_node("tools", ToolNode(tools=self._tools))
         graph_builder.add_node("evaluator", self._evaluator)
 
+        graph_builder.add_edge("document_worker", "answer_worker")
         graph_builder.add_conditional_edges(
-            "worker",
+            "answer_worker",
             self._worker_router,
             {"tools": "tools", "evaluator": "evaluator"},
         )
-        graph_builder.add_edge("tools", "worker")
+        graph_builder.add_edge("tools", "answer_worker")
         graph_builder.add_conditional_edges(
             "evaluator",
             self._route_based_on_evaluation,
-            {"worker": "worker", "END": END},
+            {"answer_worker": "answer_worker", "END": END},
         )
-        graph_builder.add_edge(START, "worker")
 
         memory = MemorySaver()
         graph = graph_builder.compile(checkpointer=memory)
@@ -162,42 +171,49 @@ class DocAnalyzerAgent:
 
         return graph
 
-    def _worker(self, state: State) -> Dict[str, Any]:
-        system_message = f"""
-You are a helpful assistant that can use tools to complete tasks.
-To find information, you can use the following tools:
-{self._tools}
+    def _document_worker(self, state: State) -> Dict[str, Any]:
+        logger.info(f"Document worker: {state['messages']}")
 
-Use the tools to find the information you need to answer the user's question.
+        user_message = None
+        messages = state["messages"]
+        for message in messages:
+            if isinstance(message, HumanMessage):
+                user_message = message.content
+                break
 
-You keep working on a task until either you have a question or clarification for the user,
-or the success criteria is met.
+        if user_message is None:
+            return {
+                "chunks": [],
+                "messages": [AIMessage(content="No user message found")],
+            }
 
-This is the success criteria:
-{state['success_criteria']}
+        query: Sequence[float] = self._embeddings.embed_query(str(user_message))
+        assert self._vectorstore is not None, "Agent not initialized; call initialize() first"
+        collection = self._vectorstore.get_or_create_collection(self._collection_name)
+        results = collection.query(query_embeddings=query, n_results=10)
+        logger.info(f"Results: {results}")
+        chunks = []
+        documents = results["documents"] or [[]]
+        metadatas = results["metadatas"] or [[]]
+        for result in zip(documents[0], metadatas[0]):
+            chunks.append(Result(page_content=result[0], metadata=dict(result[1])))
 
-You should reply either with a question for the user about this assignment,
-or with your final response.
-If you have a question for the user, you need to reply by clearly stating your question.
-An example might be:
+        logger.info(f"Chunks: {chunks}")
 
-Question: please clarify whether you want a summary or a detailed answer
+        return {
+            "chunks": chunks,
+            "messages": [AIMessage(content=f"Chunks found: {len(chunks)}")],
+        }
 
-If you've finished, reply with the final answer, and don't ask a question;
-simply reply with the answer.
-"""
+    def _answer_worker(self, state: State) -> Dict[str, Any]:
+        logger.info(f"Answer worker: {state['messages']}")
 
-        if state.get("feedback_on_work"):
-            system_message += f"""
-Previously you thought you completed the assignment, but your reply was rejected
-because the success criteria was not met.
-
-Here is the feedback on why this was rejected:
-{state['feedback_on_work']}
-
-With this feedback, please continue the assignment, ensuring that you meet the
-success criteria or have a question for the user.
-"""
+        system_message = get_websearch_searcher_prompt(
+            self._tools,
+            state["chunks"],
+            state["success_criteria"],
+            state["feedback_on_work"],
+        )
 
         found_system_message = False
         messages = state["messages"]
@@ -209,6 +225,9 @@ success criteria or have a question for the user.
         if not found_system_message:
             messages = [SystemMessage(content=system_message)] + messages
 
+        assert self._worker_llm_with_tools is not None, (
+            "Agent not initialized; call initialize() first"
+        )
         response = self._worker_llm_with_tools.invoke(messages)
 
         return {
@@ -236,31 +255,14 @@ success criteria or have a question for the user.
     def _evaluator(self, state: State) -> Dict[str, Any]:
         last_response = state["messages"][-1].content
 
-        system_message = """
-You are an evaluator that determines if a task has been completed successfully by an Assistant.
-Assess the Assistant's last response based on the given criteria. Respond with your feedback,
-and with your decision on whether the success criteria has been met,
-and whether more input is needed from the user.
-"""
+        system_message = get_websearch_evaluator_background()
 
-        user_message = f"""
-You are evaluating a conversation between the User and Assistant.
-You decide what action to take based on the last response from the Assistant.
-
-The entire conversation with the assistant, with the user's original request and all replies,
-is:
-{self._format_conversation(state['messages'])}
-
-The success criteria for this assignment is:
-{state['success_criteria']}
-
-And the final response from the Assistant that you are evaluating is:
-{last_response}
-
-Respond with your feedback, and decide if the success criteria is met by this response.
-Also, decide if more user input is required, either because the assistant has a question,
-needs clarification, or seems to be stuck and unable to answer without help.
-"""
+        conversation = self._format_conversation(state["messages"])
+        user_message = get_websearch_evaluator_prompt(
+            conversation,
+            state["success_criteria"],
+            last_response,
+        )
 
         if state["feedback_on_work"]:
             user_message += (
@@ -277,6 +279,9 @@ needs clarification, or seems to be stuck and unable to answer without help.
             HumanMessage(content=user_message),
         ]
 
+        assert self._evaluator_llm_with_output is not None, (
+            "Agent not initialized; call initialize() first"
+        )
         eval_result = cast(
             EvaluatorOutput,
             self._evaluator_llm_with_output.invoke(evaluator_messages),
@@ -295,6 +300,7 @@ needs clarification, or seems to be stuck and unable to answer without help.
             "success_criteria_met": eval_result.success_criteria_met,
             "user_input_needed": eval_result.user_input_needed,
         }
+
         return new_state
 
     def _route_based_on_evaluation(self, state: State) -> str:

@@ -5,7 +5,7 @@ Boilerplate for the assessment app
 Follow these instructions to setup the project architecture
 
 ## Setup folder structure
-Setup this folder structure
+This app uses the following folder structure
 ```
 assessment-app/
 ├── .github
@@ -13,11 +13,20 @@ assessment-app/
         ├── backend-deploy.yml
         └── frontend-deploy.yml 
 ├── backend/
+│   ├── agents/
+│   ├── evaluation/
+│   ├── experiments/
 │   ├── models/
 │   ├── tests/
+│   ├── utils/
 ├── frontend/
+│   ├── public/
+│   ├── out/
 │   ├── src/
 ├── memory/
+│   ├── knowledge/
+│   ├── vector_store/
+│   ├── database/
 ├── scripts/
 ├── .env
 ├── .env.pipeline
@@ -48,7 +57,7 @@ Setup the repository for development
 ## Prerequisites ##
 - Make sure python 3.12 is installed
 - Make sure uv is installed
--Make sure node and npm is installed
+- Make sure node and npm is installed
 
 ## Setup the app ##
 Run these commands to setup the application locally
@@ -119,3 +128,17 @@ If using OIDC
 
 ### Check Azure ###
 - Check the Azure Resource Group 
+
+# Evaluate the agents #
+In order to evaluate the agents run the following commands
+
+## Run the evaluator app ##
+This evaluator app run several evaluation patterns for evaluation the outcome of the agents. The results are shown in a Gradio app.
+- Run `uv run python -m evaluation.evaluator`
+
+# Experiments and data science #
+In order to run experiments with the data there some Jupiter Notebooks to do some rapid data science experiments.
+
+## Run the expiments notebook ##
+- Open a Notebook
+- Connect to the Kernel of the backend
