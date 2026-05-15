@@ -141,6 +141,26 @@ class DocAnalyzerAgent:
 
         return [user, reply, feedback]
 
+    def fetch_chunks(self, question: str) -> List[Any]:
+        """
+        Fetch the chunks for a question from the vector store.
+        :param question: The question to fetch the chunks for
+        :return: The chunks found in the vector store
+        """
+
+        query: Sequence[float] = self._embeddings.embed_query(str(question))
+        assert self._vectorstore is not None, "Agent not initialized; call initialize() first"
+        collection = self._vectorstore.get_or_create_collection(self._collection_name)
+        results = collection.query(query_embeddings=query, n_results=10)
+
+        chunks = []
+        documents = results["documents"] or [[]]
+        metadatas = results["metadatas"] or [[]]
+        for result in zip(documents[0], metadatas[0]):
+            chunks.append(Result(page_content=result[0], metadata=dict(result[1])))
+
+        return chunks
+
     def _build_graph(self) -> Any:
         graph_builder = StateGraph(State)
 
@@ -187,18 +207,7 @@ class DocAnalyzerAgent:
                 "messages": [AIMessage(content="No user message found")],
             }
 
-        query: Sequence[float] = self._embeddings.embed_query(str(user_message))
-        assert self._vectorstore is not None, "Agent not initialized; call initialize() first"
-        collection = self._vectorstore.get_or_create_collection(self._collection_name)
-        results = collection.query(query_embeddings=query, n_results=10)
-        logger.info(f"Results: {results}")
-        chunks = []
-        documents = results["documents"] or [[]]
-        metadatas = results["metadatas"] or [[]]
-        for result in zip(documents[0], metadatas[0]):
-            chunks.append(Result(page_content=result[0], metadata=dict(result[1])))
-
-        logger.info(f"Chunks: {chunks}")
+        chunks = self.fetch_chunks(str(user_message))
 
         return {
             "chunks": chunks,
@@ -307,4 +316,4 @@ class DocAnalyzerAgent:
         if state["success_criteria_met"] or state["user_input_needed"]:
             return "END"
         else:
-            return "worker"
+            return "answer_worker"

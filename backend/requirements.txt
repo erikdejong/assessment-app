@@ -2,6 +2,7 @@ beautifulsoup4
 boto3
 faiss-cpu
 fastapi
+gradio
 gunicorn
 ipywidgets
 langchain

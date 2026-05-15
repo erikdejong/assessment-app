@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from models.users import User as UserModel
-from utils.database import get_db
+from database.database import get_db
 
 # ------------------------------------------------------------------------------
 # Configuration (use env vars in real systems)

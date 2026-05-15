@@ -6,17 +6,20 @@ TEST_FILE = str(Path(__file__).parent / "tests.jsonl")
 
 
 class TestQuestion(BaseModel):
-    """A test question with expected keywords and reference answer."""
+    """
+    A test question with expected keywords and reference answer.
+    """
 
-    mba_data: dict[str, str] = Field(description="De gegevens van de MBA")
-    keywords: list[str] = Field(description="De keywords die in de context moeten voorkomen")
-    reference_answer: str = Field(description="De referentie antwoord voor deze vraag")
-    reference_justification: str = Field(description="De referentie justificatie voor deze vraag")
-    category: str = Field(description="De categorie van de vraag")
+    question: str = Field(description="The question from the user")
+    keywords: list[str] = Field(description="The keywords that must appear in the context")
+    answer: str = Field(description="The answer for this question")
+    category: str = Field(description="The category of the question")
 
 
 def load_tests() -> list[TestQuestion]:
-    """Load test questions from JSONL file."""
+    """
+    Load test questions from JSONL file.
+    """
     tests = []
     with open(TEST_FILE, "r", encoding="utf-8") as f:
         for line in f:

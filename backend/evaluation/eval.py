@@ -1,19 +1,24 @@
 import asyncio
 import math
+import os
 import sys
-from typing import Any, AsyncIterator, Iterator
-from pydantic import BaseModel, Field
+import uuid
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+from typing import Any, AsyncIterator, Iterator, cast
 
 from evaluation.test import TestQuestion, load_tests
-from agents.doc_analyzer_agent import DocAnalyzerAgent
+from agents.doc_analyzer_agent import DocAnalyzerAgent, Result
 
 load_dotenv(override=True)
 
-doc_analyzer_agent = DocAnalyzerAgent()
-
 EVALUATION_MODEL = "gpt-5-mini"
-db_name = "vector_db"
+DB_NAME = os.getenv("VECTOR_STORE_DIR") if os.getenv("VECTOR_STORE_DIR") else "vector_store"
+
+llm = ChatOpenAI(temperature=0.1, model=EVALUATION_MODEL)
+
+doc_analyzer_agent = DocAnalyzerAgent()
 
 
 class RetrievalEval(BaseModel):
@@ -65,7 +70,9 @@ class AnswerEval(BaseModel):
 
 
 def calculate_mrr(keyword: str, retrieved_docs: list[Any]) -> float:
-    """Calculate reciprocal rank for a single keyword (case-insensitive)."""
+    """
+    Calculate reciprocal rank for a single keyword (case-insensitive).
+    """
     keyword_lower = keyword.lower()
     for rank, doc in enumerate(retrieved_docs, start=1):
         if keyword_lower in doc.page_content.lower():
@@ -74,7 +81,9 @@ def calculate_mrr(keyword: str, retrieved_docs: list[Any]) -> float:
 
 
 def calculate_dcg(relevances: list[int], k: int) -> float:
-    """Calculate Discounted Cumulative Gain."""
+    """
+    Calculate Discounted Cumulative Gain.
+    """
     dcg = 0.0
     for i in range(min(k, len(relevances))):
         dcg += relevances[i] / math.log2(i + 2)  # i+2 because rank starts at 1
@@ -82,7 +91,9 @@ def calculate_dcg(relevances: list[int], k: int) -> float:
 
 
 def calculate_ndcg(keyword: str, retrieved_docs: list[Any], k: int = 10) -> float:
-    """Calculate nDCG for a single keyword (binary relevance, case-insensitive)."""
+    """
+    Calculate nDCG for a single keyword (binary relevance, case-insensitive).
+    """
     keyword_lower = keyword.lower()
 
     # Binary relevance: 1 if keyword found, 0 otherwise
@@ -103,16 +114,11 @@ def calculate_ndcg(keyword: str, retrieved_docs: list[Any], k: int = 10) -> floa
 def evaluate_retrieval(test: TestQuestion, k: int = 10) -> RetrievalEval:
     """
     Evaluate retrieval performance for a test question.
-
-    Args:
-        test: TestQuestion object containing question and keywords
-        k: Number of top documents to retrieve (default 10)
-
-    Returns:
-        RetrievalEval object with MRR, nDCG, and keyword coverage metrics
+    :param test: TestQuestion object containing question and keywords
+    :param k: Number of top documents to retrieve (default 10)
+    :return: RetrievalEval object with MRR, nDCG, and keyword coverage metrics
     """
-    # TODO: Implement retrieval against the vector store.
-    retrieved_docs: list[Any] = []
+    retrieved_docs: list[Result] = doc_analyzer_agent.fetch_chunks(test.question)
 
     # Calculate MRR (average across all keywords)
     mrr_scores = [calculate_mrr(keyword, retrieved_docs) for keyword in test.keywords]
@@ -136,30 +142,79 @@ def evaluate_retrieval(test: TestQuestion, k: int = 10) -> RetrievalEval:
     )
 
 
-async def evaluate_answer(test: TestQuestion, context: str) -> tuple[AnswerEval, str]:
+async def evaluate_answer(test: TestQuestion, session_id: str) -> tuple[AnswerEval, str]:
     """
     Evaluate answer quality using LLM-as-a-judge (async).
-
-    Args:
-        test: TestQuestion object containing question and reference answer
-        context: Background context used by the answering agent
-
-    Returns:
-        Tuple of (AnswerEval object, generated_answer string)
+    :param test: TestQuestion object containing question and reference answer
+    :param session_id: The session ID for the conversation
+    :return: Tuple of (AnswerEval object, generated_answer string)
     """
-    # TODO: Wire up the answering agent and LLM judge once those components are
-    # available in this codebase. The previous implementation referenced
-    # `task_description_agent` and `llm_provider`, which do not exist here yet.
-    raise NotImplementedError(
-        "evaluate_answer is not implemented: missing task description agent "
-        "and LLM judge provider."
+
+    success_criteria = """
+The assistant should be able give a valid answer to the user's question.
+The answer should be based on the information from the documents.
+If the questions contains a year, the answer should be based on the information
+from the documents from that year.
+The answer should be in the language of the user's question.
+"""
+
+    # Get RAG response using doc_analyzer_agent
+    response_messages = await doc_analyzer_agent.process_message(
+        test.question, success_criteria, [], session_id
     )
+    # `process_message` returns a list of {role, content} dicts; pull the
+    # assistant reply for use as the generated answer string.
+    generated_answer = str(response_messages[1]["content"]) if len(response_messages) > 1 else ""
+
+    judge_system_prompt = (
+        "You are an expert evaluator assessing the quality of answers. "
+        "Evaluate the generated answer by comparing it to the reference answer. "
+        "Only give 5/5 scores for perfect answers."
+    )
+
+    judge_user_prompt = f"""Question:
+{test.question}
+
+Generated Answer:
+{generated_answer}
+
+Reference Answer:
+{test.answer}
+
+Please evaluate the generated answer on three dimensions:
+1. Accuracy: How factually correct is it compared to the reference answer?
+   Only give 5/5 scores for perfect answers.
+2. Completeness: How thoroughly does it address all aspects of the question,
+   covering all the information from the reference answer?
+3. Relevance: How well does it directly answer the specific question asked,
+   giving no additional information?
+
+Provide detailed feedback and scores from 1 (very poor) to 5 (ideal) for each
+dimension. If the answer is wrong, then the accuracy score must be 1."""
+
+    judge_messages = [
+        {"role": "system", "content": judge_system_prompt},
+        {"role": "user", "content": judge_user_prompt},
+    ]
+
+    # Call LLM judge with structured outputs (async)
+    judge_response = await llm.ainvoke(judge_messages, response_format=AnswerEval)
+    answer_eval = AnswerEval.model_validate_json(cast(str, judge_response.content))
+
+    return answer_eval, generated_answer
 
 
 def evaluate_all_retrieval() -> Iterator[tuple[TestQuestion, RetrievalEval, float]]:
-    """Evaluate all retrieval tests."""
+    """
+    Evaluate all retrieval tests.
+    """
+
+    asyncio.run(doc_analyzer_agent.initialize())
+
     tests = load_tests()
     total_tests = len(tests)
+    print(f"Evaluating retrieval for {total_tests:,} tests")
+
     for index, test in enumerate(tests):
         result = evaluate_retrieval(test)
         progress = (index + 1) / total_tests
@@ -171,17 +226,15 @@ async def evaluate_all_answers() -> AsyncIterator[tuple[TestQuestion, AnswerEval
     Evaluate all answers to tests using batched async execution.
     """
 
-    print("Loading tests")
+    await doc_analyzer_agent.initialize()
+    session_id = str(uuid.uuid4())
+
     tests = load_tests()
     total_tests = len(tests)
-
     print(f"Evaluating answers for {total_tests:,} tests")
+
     for index, test in enumerate(tests):
-        print(f"Evaluating test {index+1}/{total_tests}")
-        # TODO: Provide real context once `web_search_service` and the
-        # `task_description_agent` summary helper are available.
-        context = ""
-        result = (await evaluate_answer(test, context))[0]
+        result = (await evaluate_answer(test, session_id))[0]
         progress = (index + 1) / total_tests
         yield test, result, progress
 
@@ -202,11 +255,10 @@ async def run_cli_evaluation(test_number: int) -> None:
     print(f"\n{'=' * 80}")
     print(f"Test #{test_number}")
     print(f"{'=' * 80}")
-    print(f"MBA data: {test.mba_data}")
+    print(f"Question: {test.question}")
     print(f"Keywords: {test.keywords}")
     print(f"Category: {test.category}")
-    print(f"Reference Answer: {test.reference_answer}")
-    print(f"Reference Justification: {test.reference_justification}")
+    print(f"Reference Answer: {test.answer}")
 
     # Retrieval Evaluation
     print(f"\n{'=' * 80}")

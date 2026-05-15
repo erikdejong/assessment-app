@@ -1,12 +1,13 @@
 import datetime
 from sqlalchemy import String, Integer, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
-from utils.database import Base
+
+from database.database import Base
 
 
 class AuditTrail(Base):
     __tablename__ = "audit_trail"
-    __table_args__ = {"schema": "app"}
+    # __table_args__ = {"schema": "app"} # Postgres only
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False)

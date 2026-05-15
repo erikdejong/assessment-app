@@ -82,7 +82,10 @@ def format_metric_html(
 def run_retrieval_evaluation(
     progress: gr.Progress = gr.Progress(),
 ) -> tuple[str, pd.DataFrame]:
-    """Run retrieval evaluation and yield updates."""
+    """
+    Run retrieval evaluation and yield updates.
+    """
+
     total_mrr = 0.0
     total_ndcg = 0.0
     total_coverage = 0.0
@@ -137,7 +140,10 @@ def run_retrieval_evaluation(
 async def run_answer_evaluation(
     progress: gr.Progress = gr.Progress(),
 ) -> tuple[str, pd.DataFrame]:
-    """Run answer evaluation and yield updates (async)."""
+    """
+    Run answer evaluation and yield updates (async).
+    """
+
     total_accuracy = 0.0
     total_completeness = 0.0
     total_relevance = 0.0
@@ -199,6 +205,28 @@ def main() -> None:
     with gr.Blocks(title="Evaluation Dashboard", theme=theme) as app:
         gr.Markdown("# 📊 Evaluation Dashboard")
 
+        # RETRIEVAL SECTION
+        gr.Markdown("## 🔍 Retrieval Evaluation")
+
+        retrieval_button = gr.Button("Run Evaluation", variant="primary", size="lg")
+
+        with gr.Row():
+            with gr.Column(scale=1):
+                retrieval_metrics = gr.HTML(
+                    "<div style='padding: 20px; text-align: center; color: #999;'>"
+                    "Click 'Run Evaluation' to start"
+                    "</div>"
+                )
+
+            with gr.Column(scale=1):
+                retrieval_chart = gr.BarPlot(
+                    x="Category",
+                    y="Average MRR",
+                    title="Average MRR by Category",
+                    y_lim=[0, 1],
+                    height=400,
+                )
+
         # ANSWERING SECTION
         gr.Markdown("## 💬 Answer Evaluation")
 
@@ -216,11 +244,14 @@ def main() -> None:
                     x="Category",
                     y="Average Accuracy",
                     title="Average Accuracy by Category",
-                    y_lim=[1, 5],
+                    y_lim=[0, 5],
                     height=400,
                 )
 
-        # Wire up the evaluations
+        retrieval_button.click(
+            fn=run_retrieval_evaluation,
+            outputs=[retrieval_metrics, retrieval_chart],
+        )
         answer_button.click(
             fn=run_answer_evaluation,
             outputs=[answer_metrics, answer_chart],

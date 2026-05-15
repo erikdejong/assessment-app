@@ -54,14 +54,14 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: |
-          cd frontend
-          npm install
+        working-directory: frontend
+        run: npm install
 
       - name: Build
-        run: |
-          cd frontend
-          NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }} npm run build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: npm run build
 
       - name: Deploy
         uses: Azure/static-web-apps-deploy@v1
@@ -71,5 +71,4 @@ jobs:
           action: upload
           app_location: frontend
           output_location: .next
-        env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          skip_app_build: true

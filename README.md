@@ -14,6 +14,7 @@ assessment-app/
         └── frontend-deploy.yml 
 ├── backend/
 │   ├── agents/
+│   ├── database/
 │   ├── evaluation/
 │   ├── experiments/
 │   ├── models/

@@ -1,16 +1,21 @@
 import os
 import traceback
 import uuid
-from datetime import datetime
-from typing import Any, Optional
 
+from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import Any, Optional
 from pydantic import BaseModel
 
 from agents.doc_analyzer_agent import DocAnalyzerAgent
+from database.audit_trail import create_audit_trail
+from database.database import get_db
+from database.security import get_user
+from models.users import User
 from utils.memory import ChatMemory
 
 load_dotenv()
@@ -79,7 +84,7 @@ async def health_check() -> dict[str, Any]:
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
     """
     Process a chat message and return a response.
     :param request: The chat request containing the message and session ID
@@ -121,6 +126,12 @@ The answer should be in the language of the user's question.
         )
 
         chat_memory.save_conversation(session_id, conversation)
+
+        user: Optional[User] = get_user(db, "admin")
+        if user is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        create_audit_trail(db, user, "chat")
 
         return ChatResponse(response=assistant_response, session_id=session_id)
 
